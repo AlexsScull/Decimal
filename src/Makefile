@@ -39,7 +39,7 @@ TEST_FILES := $(wildcard $(TEST_DIR)/*.c)
 TEST_TARGETS := $(TEST_FILES:$(TEST_DIR)/%.c=$(TEST_OUT_DIR)/%)
 
 # Основные цели
-.PHONY: all $(LIB) test gcov_report style_check style_fix cppcheck leaks valgrind clean rebuild
+.PHONY: all $(LIB) test docs gcov_report style_check style_fix cppcheck leaks valgrind clean rebuild
 
 # Стандартная сборка
 all: $(LIB)
@@ -65,6 +65,12 @@ test: $(TEST_TARGETS)
 		echo "Running $${test}..."; \
 		./$${test}; \
 	done
+
+
+# Генерация документации Doxygen
+docs:
+	cd .. && doxygen Doxyfile
+	@echo "Документация сгенерирована в папке ../docs/"
 
 # Генерация отчета о покрытии кода
 gcov_report: CFLAGS += $(GCOV_FLAGS)
@@ -154,6 +160,7 @@ help:
 	@echo "Доступные цели:"
 	@echo "  all          - сборка библиотеки (по умолчанию)"
 	@echo "  test         - запуск тестов"
+	@echo "  docs     	  - генерация документации Doxygen"
 	@echo "  gcov_report  - генерация отчета о покрытии кода"
 	@echo "  style_check  - проверка стиля кода"
 	@echo "  style_fix    - автоисправление стиля кода"

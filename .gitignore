@@ -3,6 +3,20 @@ src/obj/
 src/obj_tests/
 src/coverage_report/
 
+# Автоматически генерируемая документация Doxygen
+/docs/
+/docs/**/*
+
+# Объектные файлы и бинарные файлы сборки
+/obj/
+/obj/**/*
+/obj_tests/
+/obj_tests/**/*
+
+# Отчеты о покрытии кода
+/coverage_report/
+/coverage_report/**/*
+
 # Библиотеки и исполняемые файлы
 src/s21_decimal.a
 src/*.a
