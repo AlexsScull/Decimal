@@ -1,55 +1,35 @@
-# Prerequisites
-*.d
+# Автоматически создаваемые папки сборки
+src/obj/
+src/obj_tests/
+src/coverage_report/
 
-# Object files
-*.o
-*.ko
-*.obj
-*.elf
+# Библиотеки и исполняемые файлы
+src/s21_decimal.a
+src/*.a
+src/*.so
+src/*.dylib
 
-# Linker output
-*.ilk
-*.map
-*.exp
+# Файлы покрытия кода
+*.gcda
+*.gcno
+*.gcov
 
-# Precompiled Headers
-*.gch
-*.pch
+# Резервные копии и временные файлы
+*~
+*.swp
+*.swo
+*.backup
+*.tmp
 
-# Libraries
-*.lib
-*.a
-*.la
-*.lo
+# Файлы редакторов/IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.DS_Store
 
-# Shared objects (inc. Windows DLLs)
-*.dll
-*.so
-*.so.*
-*.dylib
-
-# Executables
-*.exe
+# Логи и отчеты
+*.log
 *.out
-*.app
-*.i*86
-*.x86_64
-*.hex
-
-# Debug files
-*.dSYM/
-*.su
-*.idb
-*.pdb
-
-# Kernel Module Compile Results
-*.mod*
-*.cmd
-.tmp_versions/
-modules.order
-Module.symvers
-Mkfile.old
-dkms.conf
-
-# debug information files
-*.dwo
