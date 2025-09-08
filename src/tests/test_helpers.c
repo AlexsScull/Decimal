@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "../decimal/helpers/s21_helpers.h"
+#include "../decimal/helpers/helpers.h"
 
 START_TEST(test_get_bit_normal) {
   s21_decimal dec = {{0xAAAAAAAA, 0x55555555, 0x33333333, 0}};

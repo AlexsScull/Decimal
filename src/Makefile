@@ -16,7 +16,6 @@ endif
 # Имя библиотеки
 LIB := s21_decimal.a
 
-# Директории
 SRC_DIR := decimal
 TEST_DIR := tests
 OBJ_DIR := obj
@@ -39,7 +38,7 @@ TEST_FILES := $(wildcard $(TEST_DIR)/*.c)
 TEST_TARGETS := $(TEST_FILES:$(TEST_DIR)/%.c=$(TEST_OUT_DIR)/%)
 
 # Основные цели
-.PHONY: all $(LIB) test docs gcov_report style_check style_fix cppcheck leaks valgrind clean rebuild
+.PHONY: all $(LIB) test docs gcov_report style_check style_fix cppcheck leaks valgrind clean rebuild help
 
 # Стандартная сборка
 all: $(LIB)
@@ -65,7 +64,6 @@ test: $(TEST_TARGETS)
 		echo "Running $${test}..."; \
 		./$${test}; \
 	done
-
 
 # Генерация документации Doxygen
 docs:
@@ -160,7 +158,7 @@ help:
 	@echo "Доступные цели:"
 	@echo "  all          - сборка библиотеки (по умолчанию)"
 	@echo "  test         - запуск тестов"
-	@echo "  docs     	  - генерация документации Doxygen"
+	@echo "  docs         - генерация документации Doxygen"
 	@echo "  gcov_report  - генерация отчета о покрытии кода"
 	@echo "  style_check  - проверка стиля кода"
 	@echo "  style_fix    - автоисправление стиля кода"
