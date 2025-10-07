@@ -20,7 +20,7 @@ typedef enum {
   S21_NEG_INF =
       2, /**< Результат слишком мал или равен отрицательной бесконечности */
   S21_ZERO_DIV = 3, /**< Деление на ноль */
-  S21_CONV_ERR = 4  /**< Ошибка конвертации */
+  S21_ERR = 4       /**< Ошибка */
 } s21_error_code;
 
 /**
@@ -32,14 +32,22 @@ typedef enum {
 } s21_bool;
 
 /**
+ * @brief Коды ошибок для преобразований decimal
+ */
+typedef enum {
+  S21_CONV_OK = 0, /**< Конвертация выполнена успешно */
+  S21_CONV_ERR = 1 /**< Ошибка конвертации */
+} s21_error_code_convertation;
+
+/**
  * @brief Структура decimal для представления десятичных чисел с фиксированной
  * точкой
  * @details Число представляется как целое значение (мантисса) и масштаб
  * (степень 10)
  */
 typedef struct {
-  int bits[4]; /**< Массив из четырех 32-битных целых чисел для хранения числа
-                */
+  uint32_t bits[4]; /**< Массив из четырех 32-битных целых чисел для хранения
+                       числа */
 } s21_decimal;
 
 /* АРИФМЕТИЧЕСКИЕ ОПЕРАТОРЫ */
@@ -134,33 +142,43 @@ int s21_is_not_equal(s21_decimal a, s21_decimal b);
 
 /**
  * @brief Преобразует целое число int в decimal
+ * @details Вызывающая сторона должна обеспечить валидность указателя dst и
+ * decimal. Функция инициализирует dst нулевым значением перед преобразованием.
  * @param src Исходное целое число
  * @param dst Указатель на decimal для сохранения результата
- * @return Код ошибки (s21_error_code)
+ * @return Код ошибки (s21_error_code_convertation)
  */
 int s21_from_int_to_decimal(int src, s21_decimal *dst);
 
 /**
  * @brief Преобразует число float в decimal
+ * @details Вызывающая сторона должна обеспечить валидность указателя dst.
+ *          Функция обрабатывает специальные значения (NaN, бесконечности) и
+ *          нормализованные числа с плавающей запятой.
  * @param src Исходное число float
  * @param dst Указатель на decimal для сохранения результата
- * @return Код ошибки (s21_error_code)
+ * @return Код ошибки (s21_error_code_convertation)
  */
 int s21_from_float_to_decimal(float src, s21_decimal *dst);
 
 /**
  * @brief Преобразует decimal в целое число int
+ * @details Вызывающая сторона должна обеспечить валидность указателя dst и
+ * decimal. Функция выполняет проверку переполнения и усечение дробной части.
+ *          При ошибке dst не изменяется.
  * @param src Исходное decimal число
  * @param dst Указатель на int для сохранения результата
- * @return Код ошибки (s21_error_code)
+ * @return Код ошибки (s21_error_code_convertation)
  */
 int s21_from_decimal_to_int(s21_decimal src, int *dst);
 
 /**
  * @brief Преобразует decimal в число float
+ * @details Вызывающая сторона должна обеспечить валидность указателя dst.
+ *          Функция обрабатывает преобразование с учетом масштаба decimal.
  * @param src Исходное decimal число
  * @param dst Указатель на float для сохранения результата
- * @return Код ошибки (s21_error_code)
+ * @return Код ошибки (s21_error_code_convertation)
  */
 int s21_from_decimal_to_float(s21_decimal src, float *dst);
 
@@ -171,7 +189,7 @@ int s21_from_decimal_to_float(s21_decimal src, float *dst);
  * бесконечности
  * @param value Исходное decimal число
  * @param result Указатель на decimal для сохранения результата
- * @return Код ошибки (s21_error_code)
+ * @return Код ошибки (s21_error_code_convertation)
  */
 int s21_floor(s21_decimal value, s21_decimal *result);
 
@@ -179,7 +197,7 @@ int s21_floor(s21_decimal value, s21_decimal *result);
  * @brief Округляет decimal до ближайшего целого числа
  * @param value Исходное decimal число
  * @param result Указатель на decimal для сохранения результата
- * @return Код ошибки (s21_error_code)
+ * @return Код ошибки (s21_error_code_convertation)
  */
 int s21_round(s21_decimal value, s21_decimal *result);
 
@@ -187,7 +205,7 @@ int s21_round(s21_decimal value, s21_decimal *result);
  * @brief Отбрасывает дробную часть decimal числа
  * @param value Исходное decimal число
  * @param result Указатель на decimal для сохранения результата
- * @return Код ошибки (s21_error_code)
+ * @return Код ошибки (s21_error_code_convertation)
  */
 int s21_truncate(s21_decimal value, s21_decimal *result);
 
@@ -195,7 +213,7 @@ int s21_truncate(s21_decimal value, s21_decimal *result);
  * @brief Умножает decimal число на -1 (меняет знак)
  * @param value Исходное decimal число
  * @param result Указатель на decimal для сохранения результата
- * @return Код ошибки (s21_error_code)
+ * @return Код ошибки (s21_error_code_convertation)
  */
 int s21_negate(s21_decimal value, s21_decimal *result);
 

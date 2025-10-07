@@ -9,155 +9,86 @@
 #define S21_HELPERS_H
 
 #include <stdint.h>
-
 #include "../s21_decimal.h"
 
-/* ОПЕРАЦИИ С БИТАМИ */
+// Определения для разных размеров int
+#if __SIZEOF_INT__ == 2
+#define S21_INT_MAX 32767
+#define S21_INT_MIN (-32768)
+#elif __SIZEOF_INT__ == 4
+#define S21_INT_MAX 2147483647
+#define S21_INT_MIN (-2147483648)
+#elif __SIZEOF_INT__ == 8
+#define S21_INT_MAX 9223372036854775807LL
+#define S21_INT_MIN (-9223372036854775808LL)
+#else
+// Стандартные значения для 32-битных систем
+#define S21_INT_MAX 2147483647
+#define S21_INT_MIN (-2147483648)
+#endif
 
-/**
- * @brief Получает значение бита в указанной позиции decimal числа
- * @param value - структура decimal, из которой читаем бит
- * @param position - позиция бита (0-127), где:
- *                  0 - младший бит мантиссы (bits[0])
- *                  127 - старший бит (знак в bits[3])
- * @return значение бита (0 или 1), или 0 при неверной позиции
- */
-int s21_get_bit(s21_decimal value, int position);
-
-/**
- * @brief Устанавливает значение бита в указанной позиции decimal числа
- * @param value - указатель на структуру decimal для изменения
- * @param position - позиция бита (0-127), где:
- *                  0 - младший бит мантиссы (bits[0])
- *                  127 - старший бит (знак в bits[3])
- * @param bit - значение для установки (0 или 1)
- */
-void s21_set_bit(s21_decimal *value, int position, int bit);
+#define S21_UINT32_MAX 4294967295U
+#define S21_DECIMAL_MAX 79228162514264337593543950335ULL
 
 /**
  * @brief Получает знак decimal числа
  * @param value Decimal число
  * @return Знак числа (0 - положительный, 1 - отрицательный)
- *
  */
-int s21_get_sign(s21_decimal value);
-
-/**
- * @brief Устанавливает знак decimal числа
- * @param value Указатель на decimal число
- * @param sign Знак числа (0 - положительный, 1 - отрицательный)
- *
- */
-void s21_set_sign(s21_decimal *value, int sign);
+static inline int s21_get_sign(const s21_decimal *d) {
+  return (d->bits[3] >> 31) & 1U;
+}
 
 /**
  * @brief Получает масштаб decimal числа
  * @param value Decimal число
  * @return Масштаб (степень 10, от 0 до 28)
  */
-int s21_get_scale(s21_decimal value);
+static inline int s21_get_scale(const s21_decimal *d) {
+  return (d->bits[3] >> 16) & 0xFFU;
+}
+
+/**
+ * @brief Устанавливает знак decimal числа
+ * @param value Указатель на decimal число
+ * @param sign Знак числа (0 - положительный, 1 - отрицательный)
+ */
+static inline void s21_set_sign(s21_decimal *d, int sign) {
+  d->bits[3] = (d->bits[3] & ~(1U << 31)) | ((!!sign) << 31);
+}
 
 /**
  * @brief Устанавливает масштаб decimal числа
  * @param value Указатель на decimal число
  * @param scale Масштаб (степень 10, от 0 до 28)
  */
-void s21_set_scale(s21_decimal *value, int scale);
+static inline void s21_set_scale(s21_decimal *d, int scale) {
+  d->bits[3] = (d->bits[3] & ~(0xFFU << 16)) | ((scale & 0xFFU) << 16);
+}
 
-/* СЛУЖЕБНЫЕ ФУНКЦИИ */
-
-/**
- * @brief Проверяет, является ли decimal число нулем
- * @param value Decimal число
- * @return 1 если число равно нулю, иначе 0
- */
-int s21_is_zero(s21_decimal value);
+static inline int s21_validate_unused_bits(const s21_decimal *d) {
+  return ((d->bits[3] & 0x7FFF0000) == (s21_get_scale(d) << 16)) &&
+         ((d->bits[3] & 0x0000FFFF) == 0);
+}
 
 /**
- * @brief Обнуляет decimal число
- * @param value Указатель на decimal число
+ * @brief Создает и возвращает decimal с нулевым значением
+ * @details Функция инициализирует все биты структуры нулями.
+ * @return Инициализированная нулевая структура decimal
  */
-void s21_zero_decimal(s21_decimal *value);
+s21_decimal s21_decimal_zero(void);
 
-/**
- * @brief Инициализирует decimal нулевым значением
- * @return Возвращает decimal, равный нулю
- */
-s21_decimal s21_decimal_init_zero(void);
+// ==================== ARITHMETIC OPERATIONS ====================
 
-/**
- * @brief Копирует decimal число
- * @param src Исходное decimal число
- * @param dest Указатель на целевое decimal число
- */
-void s21_copy_decimal(s21_decimal src, s21_decimal *dest);
-
-/* ОПЕРАЦИИ С МАСШТАБОМ */
-
-/**
- * @brief Выравнивает масштабы двух decimal чисел
- * @param a Указатель на первое decimal число
- * @param b Указатель на второе decimal число
- * @details Умножает число с меньшим масштабом на соответствующую степень 10
- * @return Код ошибки (s21_error_code)
- */
 int s21_align_scales(s21_decimal *a, s21_decimal *b);
-
-/**
- * @brief Умножает decimal число на степень 10 (value × 10^power)
- * @param value Указатель на decimal число
- * @param power Степень 10
- * @return Код ошибки (s21_error_code)
- *
- * Изменения мантиссы без изменения масштаба!
- */
 int s21_multiply_by_power10(s21_decimal *value, int power);
-
-static int s21_multiply_by_10(s21_decimal *value);
-
-/**
- * @brief Делит decimal число на степень 10 (value ÷ 10^power)
- * @param value Указатель на decimal число
- * @param power Степень 10
- * @return Код ошибки (s21_error_code)
- *
- * Изменения мантиссы без изменения масштаба!
- * Банковское округление
- */
 int s21_divide_by_power10(s21_decimal *value, int power);
 
-static uint32_t s21_divide_by_10(s21_decimal *value);
+// ==================== ROUNDING OPERATIONS ====================
 
-/**
- * @brief Нормализует decimal число (удаляет конечные нули)
- * @param value Указатель на decimal число
- * @return Код ошибки (s21_error_code)
- */
-int s21_normalize(s21_decimal *value);
-
-/* ОПЕРАЦИИ ОКРУГЛЕНИЯ */
-
-/**
- * @brief Выполняет банковское округление decimal числа
- * @param value Указатель на decimal число
- * @param precision Точность округления
- * @details Округление до ближайшего четного числа при равенстве расстояний
- */
-void s21_bank_round(s21_decimal *value, int precision);
-
-/**
- * @brief Выполняет банковское округление на основе остатка
- * @param value Указатель на decimal число
- * @param remainder Остаток от деления
- * @return Код ошибки (s21_error_code)
- */
-int s21_bank_round_remainder(s21_decimal *value, uint32_t remainder);
-
-/**
- * @brief Добавляет 1 к decimal числу
- * @param value Указатель на decimal число
- * @return Код ошибки (s21_error_code)
- */
 int s21_add_one(s21_decimal *value);
+int s21_normalize(s21_decimal *value);
+void s21_bank_round(s21_decimal *value, int target_precision);
+int s21_bank_round_remainder(s21_decimal *value, uint32_t remainder);
 
 #endif
