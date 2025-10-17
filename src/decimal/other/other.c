@@ -228,4 +228,4 @@ static uint32_t s21_divide_by_10(s21_decimal *value) {
   }
 
   return (uint32_t)remainder;
-}
+} 

@@ -21,7 +21,7 @@ START_TEST(test_is_less_less_positive_numbers) {  // (+) знак
 END_TEST
 
 START_TEST(test_is_less_not_less_positive_numbers) {  // (+) знак
-  s21_decimal a = {{3423400, 0, 0, 0x00020000}};      // 34234.00
+  s21_decimal a = {{3423400, 0, 0, 0x00020000}};      // 34234.00 
   s21_decimal b = {{12355, 0, 0, 0x00040000}};        // 1.2355
   ck_assert_int_eq(s21_is_less(a, b), 0);             // a > b (0)
 }

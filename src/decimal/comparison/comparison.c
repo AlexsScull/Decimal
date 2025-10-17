@@ -214,7 +214,7 @@ int s21_comparison_bits(s21_decimal a, s21_decimal b, int sign) {
 // ========== мусор, но пока пусть будет ===========
 
 // int s21_comparison_bits(s21_decimal a, s21_decimal b, int sign) {
-//   int result = S21_START;
+//   int result = S21_START; 
 
 //   if (s21_align_scales(&a, &b) == 0) {
 //     int flag = 0;

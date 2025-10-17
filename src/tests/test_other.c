@@ -17,7 +17,7 @@ START_TEST(test_negate) {
 
   s21_decimal expected = {{123456789, 0, 0, 0x80050000}};  // -1234.56789
   ck_assert_int_eq(s21_is_equal(result, expected),
-                   1);  // result == expected (1)
+                   1);  // result == expected (1) 
 }
 END_TEST
 
@@ -28,7 +28,7 @@ START_TEST(test_negate_positive_to_negativ) {
 
   s21_decimal expected = {{544959, 0, 0, 0x80010000}};  // -54495.9
   ck_assert_int_eq(s21_is_equal(result, expected),
-                   1);  // result == expected (1)
+                   1);  // result == expected (1)  
 }
 END_TEST
 
