@@ -217,4 +217,38 @@ int s21_truncate(s21_decimal value, s21_decimal *result);
  */
 int s21_negate(s21_decimal value, s21_decimal *result);
 
+
+
+
+
+
+
+
+
+
+
+
+typedef enum {
+  S21_ARITHMETIC_OK = 0,    /**< Успешно */
+  S21_ARITHMETIC_INF = 1,   /**< Результат слишком велик */
+  S21_ARITHMETIC_NEG_INF = 2, /**< Результат слишком мал */
+  S21_ARITHMETIC_ZERO_DIV = 3, /**< Деление на ноль */
+  S21_ARITHMETIC_ERR = 4    /**< Ошибка */
+} s21_arithmetic_error_code;
+
+typedef enum {
+  S21_COMPARISON_FALSE = 0, /**< Ложь */
+  S21_COMPARISON_TRUE = 1   /**< Истина */
+} s21_comparison_result;
+
+typedef enum {
+  S21_CONVERSION_OK = 0, /**< Конвертация выполнена успешно */
+  S21_CONVERSION_ERROR = 1 /**< Ошибка конвертации */
+} s21_conversion_error_code;
+
+typedef enum {
+  S21_OTHER_FUNC_OK = 0,    /**< Функция выполнена успешно */
+  S21_OTHER_FUNC_ERROR = 1  /**< Ошибка вычисления */
+} s21_other_func_error_code;
+
 #endif
