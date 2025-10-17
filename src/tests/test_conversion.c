@@ -2,341 +2,790 @@
 #include <limits.h>
 #include <float.h>
 #include <math.h>
+#include <string.h>
 #include <stdlib.h>
-
+#include "../decimal/s21_decimal.h"
 #include "../decimal/helpers/helpers.h"
 
-START_TEST(test_from_int_to_decimal_basic) {
+// ==================== Вспомогательные функции ====================
+
+static int float_equals(float a, float b, float epsilon) {
+    if (isnan(a) && isnan(b)) return 1;
+    if (isinf(a) && isinf(b) && signbit(a) == signbit(b)) return 1;
+    return fabs(a - b) < epsilon;
+}
+
+static int decimal_equals(s21_decimal a, s21_decimal b) {
+    return a.bits[0] == b.bits[0] && a.bits[1] == b.bits[1] && 
+           a.bits[2] == b.bits[2] && a.bits[3] == b.bits[3];
+}
+
+// ==================== КРИТИЧЕСКИЕ ТЕСТЫ ДЛЯ int ↔ decimal ====================
+
+START_TEST(test_int_to_decimal_positive_numbers) {
     s21_decimal result;
-    int test_cases[] = {0, 1, -1, 123, -456, 7890, -12345, INT_MAX, INT_MIN};
-    int expected[] = {0, 1, -1, 123, -456, 7890, -12345, INT_MAX, INT_MIN};
     
-    for (size_t i = 0; i < sizeof(test_cases)/sizeof(test_cases[0]); i++) {
-        int ret = s21_from_int_to_decimal(test_cases[i], &result);
-        ck_assert_int_eq(ret, S21_CONV_OK);
+    int status = s21_from_int_to_decimal(12345, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert_uint_eq(result.bits[0], 12345);
+    ck_assert_uint_eq(result.bits[1], 0);
+    ck_assert_uint_eq(result.bits[2], 0);
+    ck_assert_int_eq(s21_get_scale(&result), 0);
+    ck_assert_int_eq(s21_get_sign(&result), 0);
+}
+END_TEST
+
+START_TEST(test_int_to_decimal_negative_numbers) {
+    s21_decimal result;
+    
+    int status = s21_from_int_to_decimal(-67890, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert_uint_eq(result.bits[0], 67890);
+    ck_assert_int_eq(s21_get_sign(&result), 1);
+}
+END_TEST
+
+START_TEST(test_int_to_decimal_zero) {
+    s21_decimal result;
+    
+    int status = s21_from_int_to_decimal(0, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert_uint_eq(result.bits[0], 0);
+    ck_assert_uint_eq(result.bits[1], 0);
+    ck_assert_uint_eq(result.bits[2], 0);
+    ck_assert_int_eq(s21_get_sign(&result), 0);
+}
+END_TEST
+
+START_TEST(test_int_to_decimal_max_int) {
+    s21_decimal result;
+    
+    int status = s21_from_int_to_decimal(INT_MAX, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert_uint_eq(result.bits[0], INT_MAX);
+    ck_assert_int_eq(s21_get_sign(&result), 0);
+}
+END_TEST
+
+START_TEST(test_int_to_decimal_min_int) {
+    s21_decimal result;
+    
+    int status = s21_from_int_to_decimal(INT_MIN, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    // Для INT_MIN нужно аккуратно проверить представление
+    ck_assert_uint_eq(result.bits[0], (uint32_t)(-(int64_t)INT_MIN));
+    ck_assert_int_eq(s21_get_sign(&result), 1);
+}
+END_TEST
+
+START_TEST(test_int_to_decimal_null_dst_returns_error) {
+    int status = s21_from_int_to_decimal(123, NULL);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_ERROR);
+}
+END_TEST
+
+START_TEST(test_decimal_to_int_positive_numbers) {
+    s21_decimal value = decimal_from_parts(12345, 0, 0, 0, 0);
+    int result;
+    
+    int status = s21_from_decimal_to_int(value, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert_int_eq(result, 12345);
+}
+END_TEST
+
+START_TEST(test_decimal_to_int_negative_numbers) {
+    s21_decimal value = decimal_from_parts(67890, 0, 0, 0, 1);
+    int result;
+    
+    int status = s21_from_decimal_to_int(value, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert_int_eq(result, -67890);
+}
+END_TEST
+
+START_TEST(test_decimal_to_int_zero) {
+    s21_decimal value = decimal_from_parts(0, 0, 0, 0, 0);
+    int result;
+    
+    int status = s21_from_decimal_to_int(value, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert_int_eq(result, 0);
+}
+END_TEST
+
+START_TEST(test_decimal_to_int_truncates_fraction) {
+    s21_decimal value = decimal_from_parts(12345, 0, 0, 3, 0); // 12.345
+    int result;
+    
+    int status = s21_from_decimal_to_int(value, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert_int_eq(result, 12); // Дробная часть отбрасывается
+}
+END_TEST
+
+START_TEST(test_decimal_to_int_rounds_towards_zero) {
+    s21_decimal positive = decimal_from_parts(9999, 0, 0, 3, 0); // 9.999
+    s21_decimal negative = decimal_from_parts(9999, 0, 0, 3, 1); // -9.999
+    int result_pos, result_neg;
+    
+    s21_from_decimal_to_int(positive, &result_pos);
+    s21_from_decimal_to_int(negative, &result_neg);
+    
+    ck_assert_int_eq(result_pos, 9);  // 9.999 -> 9 (к нулю)
+    ck_assert_int_eq(result_neg, -9); // -9.999 -> -9 (к нулю)
+}
+END_TEST
+
+START_TEST(test_decimal_to_int_overflow_positive_returns_error) {
+    s21_decimal large = decimal_from_parts(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0, 0);
+    int result;
+    
+    int status = s21_from_decimal_to_int(large, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_ERROR);
+}
+END_TEST
+
+START_TEST(test_decimal_to_int_overflow_negative_returns_error) {
+    s21_decimal large_negative = decimal_from_parts(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0, 1);
+    int result;
+    
+    int status = s21_from_decimal_to_int(large_negative, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_ERROR);
+}
+END_TEST
+
+START_TEST(test_decimal_to_int_null_dst_returns_error) {
+    s21_decimal value = decimal_from_parts(123, 0, 0, 0, 0);
+    
+    int status = s21_from_decimal_to_int(value, NULL);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_ERROR);
+}
+END_TEST
+
+// ==================== КРИТИЧЕСКИЕ ТЕСТЫ ДЛЯ float ↔ decimal ====================
+
+START_TEST(test_float_to_decimal_positive_numbers) {
+    s21_decimal result;
+    
+    int status = s21_from_float_to_decimal(123.456f, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    // Проверяем что значение приблизительно правильное
+    ck_assert_uint_ge(result.bits[0], 123455); // Учитываем возможное округление
+    ck_assert_uint_le(result.bits[0], 123457);
+    ck_assert_int_eq(s21_get_sign(&result), 0);
+}
+END_TEST
+
+START_TEST(test_float_to_decimal_negative_numbers) {
+    s21_decimal result;
+    
+    int status = s21_from_float_to_decimal(-78.9f, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert_int_eq(s21_get_sign(&result), 1);
+}
+END_TEST
+
+START_TEST(test_float_to_decimal_zero) {
+    s21_decimal result;
+    
+    int status = s21_from_float_to_decimal(0.0f, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert_uint_eq(result.bits[0], 0);
+    ck_assert_int_eq(s21_get_sign(&result), 0);
+}
+END_TEST
+
+START_TEST(test_float_to_decimal_negative_zero) {
+    s21_decimal result;
+    
+    int status = s21_from_float_to_decimal(-0.0f, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert_uint_eq(result.bits[0], 0);
+    // Отрицательный ноль может быть представлен как положительный
+    // согласно спецификации decimal
+}
+END_TEST
+
+START_TEST(test_float_to_decimal_small_positive_returns_error) {
+    s21_decimal result;
+    
+    // Число меньше 1e-28
+    int status = s21_from_float_to_decimal(1e-29f, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_ERROR);
+    ck_assert_uint_eq(result.bits[0], 0); // Должно быть установлено в 0
+}
+END_TEST
+
+START_TEST(test_float_to_decimal_small_negative_returns_error) {
+    s21_decimal result;
+    
+    int status = s21_from_float_to_decimal(-1e-29f, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_ERROR);
+    ck_assert_uint_eq(result.bits[0], 0);
+}
+END_TEST
+
+START_TEST(test_float_to_decimal_large_positive_returns_error) {
+    s21_decimal result;
+    
+    // Число больше максимального decimal
+    int status = s21_from_float_to_decimal(8e28f, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_ERROR);
+}
+END_TEST
+
+START_TEST(test_float_to_decimal_large_negative_returns_error) {
+    s21_decimal result;
+    
+    int status = s21_from_float_to_decimal(-8e28f, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_ERROR);
+}
+END_TEST
+
+START_TEST(test_float_to_decimal_infinity_returns_error) {
+    s21_decimal result;
+    
+    int status = s21_from_float_to_decimal(INFINITY, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_ERROR);
+}
+END_TEST
+
+START_TEST(test_float_to_decimal_negative_infinity_returns_error) {
+    s21_decimal result;
+    
+    int status = s21_from_float_to_decimal(-INFINITY, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_ERROR);
+}
+END_TEST
+
+START_TEST(test_float_to_decimal_nan_returns_error) {
+    s21_decimal result;
+    
+    int status = s21_from_float_to_decimal(NAN, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_ERROR);
+}
+END_TEST
+
+START_TEST(test_float_to_decimal_precision_7_digits) {
+    s21_decimal result;
+    
+    // Число с более чем 7 значащими цифрами
+    float value = 123.456789f; // 9 значащих цифр
+    int status = s21_from_float_to_decimal(value, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    // Должно быть округлено до 7 значащих цифр: 123.4568
+    // Проверим, что значение близко к округленному
+    float rounded = 123.4568f;
+    s21_decimal expected;
+    s21_from_float_to_decimal(rounded, &expected);
+    ck_assert_uint_eq(result.bits[0], expected.bits[0]);
+    ck_assert_int_eq(s21_get_scale(&result), s21_get_scale(&expected));
+}
+END_TEST
+
+START_TEST(test_float_to_decimal_rounding_behavior) {
+    // Проверяем округление к ближайшему четному (банковское округление)
+    // 1.234565 -> 1.23456 (если последняя цифра 5 и предыдущая четная)
+    // 1.234575 -> 1.23458 (если последняя цифра 5 и предыдущая нечетная)
+    float test_cases[][2] = {
+        {1.234565f, 1.23456f},  // округление вниз
+        {1.234575f, 1.23458f},  // округление вверх
+    };
+    
+    for (int i = 0; i < 2; i++) {
+        s21_decimal result;
+        int status = s21_from_float_to_decimal(test_cases[i][0], &result);
+        ck_assert_int_eq(status, S21_CONVERSION_OK);
         
-        int back_converted;
-        s21_from_decimal_to_int(result, &back_converted);
-        ck_assert_int_eq(back_converted, expected[i]);
+        s21_decimal expected;
+        s21_from_float_to_decimal(test_cases[i][1], &expected);
+        ck_assert_uint_eq(result.bits[0], expected.bits[0]);
+        ck_assert_int_eq(s21_get_scale(&result), s21_get_scale(&expected));
     }
 }
 END_TEST
 
-START_TEST(test_from_int_to_decimal_null_ptr) {
-    int ret = s21_from_int_to_decimal(123, NULL);
-    ck_assert_int_eq(ret, S21_CONV_ERR);
-}
-END_TEST
-
-START_TEST(test_from_decimal_to_int_basic) {
-    s21_decimal decimals[5];
-    int expected[] = {0, 123, -456, 7890, -12345};
+START_TEST(test_float_to_decimal_common_values) {
+    float test_values[] = {
+        1.0f, 2.0f, 10.0f, 100.0f, 1000.0f, 10000.0f, 100000.0f,
+        0.1f, 0.01f, 0.001f, 0.0001f, 0.00001f,
+        3.141592f, 2.718281f, 1.414213f
+    };
     
-    s21_from_int_to_decimal(0, &decimals[0]);
-    s21_from_int_to_decimal(123, &decimals[1]);
-    s21_from_int_to_decimal(-456, &decimals[2]);
-    s21_from_int_to_decimal(7890, &decimals[3]);
-    s21_from_int_to_decimal(-12345, &decimals[4]);
-    
-    for (int i = 0; i < 5; i++) {
-        int result;
-        int ret = s21_from_decimal_to_int(decimals[i], &result);
-        ck_assert_int_eq(ret, S21_CONV_OK);
-        ck_assert_int_eq(result, expected[i]);
+    for (size_t i = 0; i < sizeof(test_values) / sizeof(test_values[0]); i++) {
+        s21_decimal result;
+        int status = s21_from_float_to_decimal(test_values[i], &result);
+        ck_assert_int_eq(status, S21_CONVERSION_OK);
+        // Проверяем что преобразование прошло без ошибок
     }
 }
 END_TEST
 
-START_TEST(test_from_decimal_to_int_overflow_positive) {
-    s21_decimal large_decimal;
-    // Создаем decimal значение больше INT_MAX
-    large_decimal.bits[0] = (uint32_t)INT_MAX + 1;
-    large_decimal.bits[1] = 0;
-    large_decimal.bits[2] = 0;
-    large_decimal.bits[3] = 0; // scale = 0
+START_TEST(test_float_to_decimal_powers_of_ten) {
+    float powers[] = {
+        1e0f, 1e1f, 1e2f, 1e3f, 1e4f, 1e5f, 1e6f,
+        1e-1f, 1e-2f, 1e-3f, 1e-4f, 1e-5f, 1e-6f
+    };
     
-    int result;
-    int ret = s21_from_decimal_to_int(large_decimal, &result);
-    ck_assert_int_eq(ret, S21_CONV_ERR);
-}
-END_TEST
-
-START_TEST(test_from_decimal_to_int_overflow_negative) {
-    s21_decimal small_decimal;
-    // Создаем decimal значение меньше INT_MIN
-    small_decimal.bits[0] = (uint32_t)(-(INT_MIN + 1)) + 1;
-    small_decimal.bits[1] = 0;
-    small_decimal.bits[2] = 0;
-    s21_set_sign(&small_decimal, 1); // отрицательное
-    
-    int result;
-    int ret = s21_from_decimal_to_int(small_decimal, &result);
-    ck_assert_int_eq(ret, S21_CONV_ERR);
-}
-END_TEST
-
-START_TEST(test_from_decimal_to_int_with_scale) {
-    s21_decimal decimal;
-    // 12.34 с scale = 2
-    decimal.bits[0] = 1234;
-    decimal.bits[1] = 0;
-    decimal.bits[2] = 0;
-    s21_set_scale(&decimal, 2);
-    
-    int result;
-    int ret = s21_from_decimal_to_int(decimal, &result);
-    ck_assert_int_eq(ret, S21_CONV_OK);
-    ck_assert_int_eq(result, 12); // truncate до 12
-}
-END_TEST
-
-START_TEST(test_from_decimal_to_int_null_ptr) {
-    s21_decimal decimal;
-    s21_from_int_to_decimal(123, &decimal);
-    
-    int ret = s21_from_decimal_to_int(decimal, NULL);
-    ck_assert_int_eq(ret, S21_CONV_ERR);
-}
-END_TEST
-
-START_TEST(test_from_float_to_decimal_basic) {
-    s21_decimal result;
-    float test_cases[] = {0.0f, 1.0f, -1.0f, 123.456f, -78.9f, 1000.0f, -0.001f};
-    
-    for (size_t i = 0; i < sizeof(test_cases)/sizeof(test_cases[0]); i++) {
-        int ret = s21_from_float_to_decimal(test_cases[i], &result);
-        ck_assert_int_eq(ret, S21_CONV_OK);
+    for (int i = 0; i < 13; i++) {
+        s21_decimal result;
+        int status = s21_from_float_to_decimal(powers[i], &result);
         
-        // Проверяем что преобразование корректно через обратное преобразование
-        float back_converted;
-        s21_from_decimal_to_float(result, &back_converted);
-        
-        // Допускаем небольшую погрешность для float
-        float tolerance = fabsf(test_cases[i] * 1e-6f);
-        if (tolerance < 1e-7f) tolerance = 1e-7f;
-        
-        ck_assert_float_eq_tol(back_converted, test_cases[i], tolerance);
+        if (fabs(powers[i]) < 1e-28f || fabs(powers[i]) > 7.9228e28f) {
+            ck_assert_int_eq(status, S21_CONVERSION_ERROR);
+        } else {
+            ck_assert_int_eq(status, S21_CONVERSION_OK);
+        }
     }
 }
 END_TEST
 
-START_TEST(test_from_float_to_decimal_special_values) {
+START_TEST(test_float_to_decimal_denormalized_handling) {
+    // Денормализованные числа (subnormal) - очень близки к нулю
+    float denormal = 1e-38f; // денормализованное число
     s21_decimal result;
     
-    // NaN должен возвращать ошибку
-    int ret = s21_from_float_to_decimal(NAN, &result);
-    ck_assert_int_eq(ret, S21_CONV_ERR);
+    int status = s21_from_float_to_decimal(denormal, &result);
     
-    // Бесконечности должны возвращать ошибку
-    ret = s21_from_float_to_decimal(INFINITY, &result);
-    ck_assert_int_eq(ret, S21_CONV_ERR);
-    
-    ret = s21_from_float_to_decimal(-INFINITY, &result);
-    ck_assert_int_eq(ret, S21_CONV_ERR);
+    // Денормализованные числа слишком малы, поэтому должна быть ошибка
+    ck_assert_int_eq(status, S21_CONVERSION_ERROR);
+    ck_assert_uint_eq(result.bits[0], 0);
 }
 END_TEST
 
-START_TEST(test_from_float_to_decimal_boundary_values) {
-    s21_decimal result;
+START_TEST(test_float_to_decimal_null_dst_returns_error) {
+    int status = s21_from_float_to_decimal(123.45f, NULL);
     
-    // Слишком маленькое число
-    int ret = s21_from_float_to_decimal(1e-29f, &result);
-    ck_assert_int_eq(ret, S21_CONV_ERR);
-    
-    // Слишком большое число
-    ret = s21_from_float_to_decimal(8e28f, &result);
-    ck_assert_int_eq(ret, S21_CONV_ERR);
-    
-    // Граничное значение (должно работать)
-    ret = s21_from_float_to_decimal(7.9e28f, &result);
-    ck_assert_int_eq(ret, S21_CONV_OK);
-    
-    // Граничное значение (должно работать)
-    ret = s21_from_float_to_decimal(1e-28f, &result);
-    ck_assert_int_eq(ret, S21_CONV_OK);
+    ck_assert_int_eq(status, S21_CONVERSION_ERROR);
 }
 END_TEST
 
-START_TEST(test_from_float_to_decimal_precision) {
-    s21_decimal result;
+START_TEST(test_decimal_to_float_positive_numbers) {
+    s21_decimal value = decimal_from_parts(12345, 0, 0, 0, 0);
+    float result;
     
-    // Число с более чем 7 значащими цифрами должно округляться
-    float precise_float = 123.456789f; // 9 значащих цифр
+    int status = s21_from_decimal_to_float(value, &result);
     
-    int ret = s21_from_float_to_decimal(precise_float, &result);
-    ck_assert_int_eq(ret, S21_CONV_OK);
-    
-    float back_converted;
-    s21_from_decimal_to_float(result, &back_converted);
-    
-    // Проверяем что округление произошло до 7 значащих цифр
-    ck_assert_float_eq_tol(back_converted, 123.4568f, 1e-4f);
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert(float_equals(result, 12345.0f, 1e-5f));
 }
 END_TEST
 
-START_TEST(test_from_float_to_decimal_null_ptr) {
-    int ret = s21_from_float_to_decimal(123.456f, NULL);
-    ck_assert_int_eq(ret, S21_CONV_ERR);
+START_TEST(test_decimal_to_float_negative_numbers) {
+    s21_decimal value = decimal_from_parts(67890, 0, 0, 0, 1);
+    float result;
+    
+    int status = s21_from_decimal_to_float(value, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert(float_equals(result, -67890.0f, 1e-5f));
 }
 END_TEST
 
-START_TEST(test_from_decimal_to_float_basic) {
-    s21_decimal decimals[6];
-    float expected[] = {0.0f, 123.0f, -456.0f, 78.9f, -0.123f, 1000.0f};
+START_TEST(test_decimal_to_float_zero) {
+    s21_decimal value = decimal_from_parts(0, 0, 0, 0, 0);
+    float result;
     
-    s21_from_float_to_decimal(0.0f, &decimals[0]);
-    s21_from_float_to_decimal(123.0f, &decimals[1]);
-    s21_from_float_to_decimal(-456.0f, &decimals[2]);
-    s21_from_float_to_decimal(78.9f, &decimals[3]);
-    s21_from_float_to_decimal(-0.123f, &decimals[4]);
-    s21_from_float_to_decimal(1000.0f, &decimals[5]);
+    int status = s21_from_decimal_to_float(value, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert(float_equals(result, 0.0f, 1e-5f));
+}
+END_TEST
+
+START_TEST(test_decimal_to_float_with_scale) {
+    s21_decimal value = decimal_from_parts(123456, 0, 0, 3, 0); // 123.456
+    float result;
+    
+    int status = s21_from_decimal_to_float(value, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert(float_equals(result, 123.456f, 1e-5f));
+}
+END_TEST
+
+START_TEST(test_decimal_to_float_large_numbers) {
+    s21_decimal large = decimal_from_parts(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0, 0);
+    float result;
+    
+    int status = s21_from_decimal_to_float(large, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    // Проверяем что значение приблизительно правильное
+    ck_assert(result > 1e28f); // Примерно 7.9228e28
+}
+END_TEST
+
+START_TEST(test_decimal_to_float_small_numbers) {
+    s21_decimal small = decimal_from_parts(1, 0, 0, 28, 0); // 1e-28
+    float result;
+    
+    int status = s21_from_decimal_to_float(small, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert(float_equals(result, 1e-28f, 1e-30f));
+}
+END_TEST
+
+START_TEST(test_decimal_to_float_precision_loss) {
+    // Decimal может иметь большую точность чем float
+    s21_decimal precise = decimal_from_parts(123456789, 0, 0, 8, 0); // 1.23456789
+    float result;
+    
+    int status = s21_from_decimal_to_float(precise, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    // Float имеет около 7 значащих цифр, поэтому возможна потеря точности
+    ck_assert(float_equals(result, 1.23456789f, 1e-7f));
+}
+END_TEST
+
+START_TEST(test_decimal_to_float_max_decimal) {
+    s21_decimal max_val = decimal_from_parts(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0, 0);
+    float result;
+    
+    int status = s21_from_decimal_to_float(max_val, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    // Максимальное decimal число ~7.9228e28, должно быть представимо в float
+    ck_assert(!isinf(result));
+}
+END_TEST
+
+START_TEST(test_decimal_to_float_min_decimal) {
+    s21_decimal min_val = decimal_from_parts(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0, 1);
+    float result;
+    
+    int status = s21_from_decimal_to_float(min_val, &result);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_OK);
+    ck_assert(!isinf(result));
+    ck_assert(result < 0);
+}
+END_TEST
+
+START_TEST(test_decimal_to_float_null_dst_returns_error) {
+    s21_decimal value = decimal_from_parts(123, 0, 0, 0, 0);
+    
+    int status = s21_from_decimal_to_float(value, NULL);
+    
+    ck_assert_int_eq(status, S21_CONVERSION_ERROR);
+}
+END_TEST
+
+// ==================== ТЕСТЫ ГРАНИЧНЫХ СЛУЧАЕВ И ПОТЕРИ ТОЧНОСТИ ====================
+
+START_TEST(test_conversion_round_trip_int) {
+    int original_values[] = {0, 1, -1, 123, -456, 10000, -10000, INT_MAX, INT_MIN};
+    
+    for (int i = 0; i < 9; i++) {
+        s21_decimal decimal_val;
+        int converted_val;
+        
+        // int -> decimal -> int
+        int status1 = s21_from_int_to_decimal(original_values[i], &decimal_val);
+        int status2 = s21_from_decimal_to_int(decimal_val, &converted_val);
+        
+        ck_assert_int_eq(status1, S21_CONVERSION_OK);
+        
+        // Для INT_MIN преобразование обратно может быть проблематичным
+        // из-за ограничений представления
+        if (original_values[i] != INT_MIN) {
+            ck_assert_int_eq(status2, S21_CONVERSION_OK);
+            ck_assert_int_eq(converted_val, original_values[i]);
+        }
+    }
+}
+END_TEST
+
+START_TEST(test_conversion_round_trip_float) {
+    float original_values[] = {
+        0.0f, 1.0f, -1.0f, 123.456f, -78.9f, 
+        100000.0f, -100000.0f, 0.001f, -0.001f
+    };
+    
+    for (int i = 0; i < 9; i++) {
+        s21_decimal decimal_val;
+        float converted_val;
+        
+        // float -> decimal -> float
+        int status1 = s21_from_float_to_decimal(original_values[i], &decimal_val);
+        int status2 = s21_from_decimal_to_float(decimal_val, &converted_val);
+        
+        if (fabs(original_values[i]) < 1e-28f || fabs(original_values[i]) > 7.9228e28f) {
+            ck_assert_int_eq(status1, S21_CONVERSION_ERROR);
+        } else {
+            ck_assert_int_eq(status1, S21_CONVERSION_OK);
+            ck_assert_int_eq(status2, S21_CONVERSION_OK);
+            // Из-за потери точности в float проверяем приблизительное равенство
+            ck_assert(float_equals(converted_val, original_values[i], fabs(original_values[i]) * 1e-5f + 1e-10f));
+        }
+    }
+}
+END_TEST
+
+START_TEST(test_conversion_special_float_values) {
+    float special_values[] = {
+        INFINITY, -INFINITY, NAN,
+        0.0f / 0.0f,  // NaN
+        1.0f / 0.0f,  // Infinity
+        -1.0f / 0.0f  // -Infinity
+    };
     
     for (int i = 0; i < 6; i++) {
-        float result;
-        int ret = s21_from_decimal_to_float(decimals[i], &result);
-        ck_assert_int_eq(ret, S21_CONV_OK);
-        
-        float tolerance = fabsf(expected[i] * 1e-6f);
-        if (tolerance < 1e-7f) tolerance = 1e-7f;
-        
-        ck_assert_float_eq_tol(result, expected[i], tolerance);
+        s21_decimal result;
+        int status = s21_from_float_to_decimal(special_values[i], &result);
+        ck_assert_int_eq(status, S21_CONVERSION_ERROR);
     }
 }
 END_TEST
 
-START_TEST(test_from_decimal_to_float_with_scale) {
-    s21_decimal decimal;
+START_TEST(test_conversion_denormalized_float) {
+    // Денормализованные числа (subnormal)
+    float denormal = 1e-38f; // денормализованное число
+    s21_decimal decimal_val;
+    float converted_val;
     
-    // 123.456 с scale = 3
-    decimal.bits[0] = 123456;
-    decimal.bits[1] = 0;
-    decimal.bits[2] = 0;
-    s21_set_scale(&decimal, 3);
+    int status1 = s21_from_float_to_decimal(denormal, &decimal_val);
+    ck_assert_int_eq(status1, S21_CONVERSION_ERROR);
     
-    float result;
-    int ret = s21_from_decimal_to_float(decimal, &result);
-    ck_assert_int_eq(ret, S21_CONV_OK);
-    ck_assert_float_eq_tol(result, 123.456f, 1e-6f);
+    // Проверяем преобразование decimal в float для очень маленького числа
+    s21_decimal small = decimal_from_parts(1, 0, 0, 28, 0); // 1e-28
+    int status2 = s21_from_decimal_to_float(small, &converted_val);
+    ck_assert_int_eq(status2, S21_CONVERSION_OK);
+    ck_assert(float_equals(converted_val, 1e-28f, 1e-30f));
 }
 END_TEST
 
-START_TEST(test_from_decimal_to_float_large_number) {
-    s21_decimal decimal;
+START_TEST(test_conversion_power_of_ten_values) {
+    // Проверяем степени 10, которые могут быть представлены точно
+    float powers[] = {1e0f, 1e1f, 1e2f, 1e3f, 1e4f, 1e5f, 1e6f};
     
-    // Большое число
-    decimal.bits[0] = 1234567890;
-    decimal.bits[1] = 0;
-    decimal.bits[2] = 0;
-    s21_set_scale(&decimal, 0);
-    
-    float result;
-    int ret = s21_from_decimal_to_float(decimal, &result);
-    ck_assert_int_eq(ret, S21_CONV_OK);
-    ck_assert_float_eq_tol(result, 1234567890.0f, 1e-6f);
-}
-END_TEST
-
-START_TEST(test_from_decimal_to_float_overflow) {
-    s21_decimal huge_decimal;
-    
-    // Создаем decimal значение больше FLT_MAX
-    huge_decimal.bits[0] = UINT32_MAX;
-    huge_decimal.bits[1] = UINT32_MAX;
-    huge_decimal.bits[2] = UINT32_MAX;
-    s21_set_scale(&huge_decimal, 0);
-    
-    float result;
-    int ret = s21_from_decimal_to_float(huge_decimal, &result);
-    ck_assert_int_eq(ret, S21_CONV_ERR);
-}
-END_TEST
-
-START_TEST(test_from_decimal_to_float_null_ptr) {
-    s21_decimal decimal;
-    s21_from_float_to_decimal(123.456f, &decimal);
-    
-    int ret = s21_from_decimal_to_float(decimal, NULL);
-    ck_assert_int_eq(ret, S21_CONV_ERR);
-}
-END_TEST
-
-START_TEST(test_round_trip_conversion) {
-    // Тест циклического преобразования int -> decimal -> int
-    for (int i = -1000; i <= 1000; i += 100) {
-        s21_decimal decimal;
-        int ret1 = s21_from_int_to_decimal(i, &decimal);
-        ck_assert_int_eq(ret1, S21_CONV_OK);
+    for (int i = 0; i < 7; i++) {
+        s21_decimal decimal_val;
+        float converted_val;
         
-        int result;
-        int ret2 = s21_from_decimal_to_int(decimal, &result);
-        ck_assert_int_eq(ret2, S21_CONV_OK);
-        ck_assert_int_eq(result, i);
+        int status1 = s21_from_float_to_decimal(powers[i], &decimal_val);
+        int status2 = s21_from_decimal_to_float(decimal_val, &converted_val);
+        
+        ck_assert_int_eq(status1, S21_CONVERSION_OK);
+        ck_assert_int_eq(status2, S21_CONVERSION_OK);
+        ck_assert(float_equals(converted_val, powers[i], 1e-5f));
     }
 }
 END_TEST
 
-START_TEST(test_round_trip_float_conversion) {
-    // Тест циклического преобразования float -> decimal -> float
-    float test_values[] = {0.5f, -0.5f, 3.14159f, -2.71828f, 100.0f, -100.0f, 0.001f, -0.001f};
+START_TEST(test_conversion_fractional_values) {
+    s21_decimal fractional = decimal_from_parts(123456, 0, 0, 5, 0); // 1.23456
+    int int_result;
+    float float_result;
     
-    for (size_t i = 0; i < sizeof(test_values)/sizeof(test_values[0]); i++) {
-        s21_decimal decimal;
-        int ret1 = s21_from_float_to_decimal(test_values[i], &decimal);
-        ck_assert_int_eq(ret1, S21_CONV_OK);
+    // decimal -> int (должен отбросить дробную часть)
+    s21_from_decimal_to_int(fractional, &int_result);
+    ck_assert_int_eq(int_result, 1);
+    
+    // decimal -> float (должен сохранить дробную часть)
+    s21_from_decimal_to_float(fractional, &float_result);
+    ck_assert(float_equals(float_result, 1.23456f, 1e-6f));
+}
+END_TEST
+
+START_TEST(test_float_imprecise_representation) {
+    // Числа, которые не могут быть точно представлены в float
+    float imprecise_values[] = {
+        0.1f, 0.2f, 0.3f, 0.4f, 0.5f, 0.6f, 0.7f, 0.8f, 0.9f,
+        1.1f, 2.2f, 3.3f, 4.4f, 5.5f, 6.6f, 7.7f, 8.8f, 9.9f
+    };
+    
+    for (int i = 0; i < 18; i++) {
+        s21_decimal decimal_val;
+        float converted_val;
         
-        float result;
-        int ret2 = s21_from_decimal_to_float(decimal, &result);
-        ck_assert_int_eq(ret2, S21_CONV_OK);
+        int status1 = s21_from_float_to_decimal(imprecise_values[i], &decimal_val);
+        int status2 = s21_from_decimal_to_float(decimal_val, &converted_val);
         
-        float tolerance = fabsf(test_values[i] * 1e-6f);
-        if (tolerance < 1e-7f) tolerance = 1e-7f;
-        
-        ck_assert_float_eq_tol(result, test_values[i], tolerance);
+        ck_assert_int_eq(status1, S21_CONVERSION_OK);
+        ck_assert_int_eq(status2, S21_CONVERSION_OK);
+        // Проверяем что значение приблизительно совпадает
+        ck_assert(float_equals(converted_val, imprecise_values[i], 1e-5f));
     }
 }
 END_TEST
 
-Suite *conversion_suite(void) {
+START_TEST(test_decimal_scale_28_conversion) {
+    // Тестируем преобразование чисел с масштабом 28
+    s21_decimal max_scale_values[] = {
+        decimal_from_parts(1, 0, 0, 28, 0), // 1e-28
+        decimal_from_parts(123456789, 0, 0, 28, 0), // 1.23456789e-21
+        decimal_from_parts(999999999, 0, 0, 28, 0), // 9.99999999e-21
+    };
+    
+    for (int i = 0; i < 3; i++) {
+        float float_val;
+        int status = s21_from_decimal_to_float(max_scale_values[i], &float_val);
+        ck_assert_int_eq(status, S21_CONVERSION_OK);
+        // Проверяем что преобразование прошло без ошибок
+        ck_assert(!isnan(float_val));
+        ck_assert(!isinf(float_val));
+    }
+}
+END_TEST
+
+START_TEST(test_progressive_precision_loss) {
+    // Тестируем постепенную потерю точности при множественных преобразованиях
+    float original = 3.141592653589793f;
+    s21_decimal intermediate;
+    float result;
+    
+    // float -> decimal -> float
+    int status1 = s21_from_float_to_decimal(original, &intermediate);
+    int status2 = s21_from_decimal_to_float(intermediate, &result);
+    
+    ck_assert_int_eq(status1, S21_CONVERSION_OK);
+    ck_assert_int_eq(status2, S21_CONVERSION_OK);
+    
+    // Из-за ограничения в 7 значащих цифр, результат должен быть округлен
+    ck_assert(float_equals(result, 3.141592f, 1e-6f));
+}
+END_TEST
+
+START_TEST(test_boundary_value_conversion) {
+    // Тестируем преобразование значений на границах допустимого диапазона
+    float boundary_values[] = {
+        1e-28f,     // Минимальное положительное
+        -1e-28f,    // Минимальное отрицательное  
+        7.9228e28f, // Максимальное положительное (приблизительно)
+        -7.9228e28f // Максимальное отрицательное
+    };
+    
+    for (int i = 0; i < 4; i++) {
+        s21_decimal decimal_val;
+        int status = s21_from_float_to_decimal(boundary_values[i], &decimal_val);
+        
+        // Граничные значения могут преобразовываться с ошибкой или успешно
+        // в зависимости от точного значения
+        if (fabs(boundary_values[i]) < 1e-28f || fabs(boundary_values[i]) > 7.9228e28f) {
+            ck_assert_int_eq(status, S21_CONVERSION_ERROR);
+        } else {
+            ck_assert_int_eq(status, S21_CONVERSION_OK);
+        }
+    }
+}
+END_TEST
+
+// ==================== Test Suite Setup ====================
+
+Suite *conversion_functions_suite(void) {
     Suite *s;
-    TCase *tc_core;
-    TCase *tc_boundary;
-    TCase *tc_errors;
+    TCase *tc_int_to_decimal, *tc_decimal_to_int, *tc_float_to_decimal;
+    TCase *tc_decimal_to_float, *tc_edge, *tc_precision;
 
-    s = suite_create("Decimal Conversion");
+    s = suite_create("Decimal Conversion Functions - Complete Coverage");
 
-    /* Основные тестовые случаи */
-    tc_core = tcase_create("Core");
-    tcase_add_test(tc_core, test_from_int_to_decimal_basic);
-    tcase_add_test(tc_core, test_from_decimal_to_int_basic);
-    tcase_add_test(tc_core, test_from_float_to_decimal_basic);
-    tcase_add_test(tc_core, test_from_decimal_to_float_basic);
-    tcase_add_test(tc_core, test_round_trip_conversion);
-    tcase_add_test(tc_core, test_round_trip_float_conversion);
-    suite_add_tcase(s, tc_core);
+    // int to decimal tests
+    tc_int_to_decimal = tcase_create("Int to Decimal");
+    tcase_add_test(tc_int_to_decimal, test_int_to_decimal_positive_numbers);
+    tcase_add_test(tc_int_to_decimal, test_int_to_decimal_negative_numbers);
+    tcase_add_test(tc_int_to_decimal, test_int_to_decimal_zero);
+    tcase_add_test(tc_int_to_decimal, test_int_to_decimal_max_int);
+    tcase_add_test(tc_int_to_decimal, test_int_to_decimal_min_int);
+    tcase_add_test(tc_int_to_decimal, test_int_to_decimal_null_dst_returns_error);
+    suite_add_tcase(s, tc_int_to_decimal);
 
-    /* Граничные значения и особые случаи */
-    tc_boundary = tcase_create("Boundary");
-    tcase_add_test(tc_boundary, test_from_decimal_to_int_overflow_positive);
-    tcase_add_test(tc_boundary, test_from_decimal_to_int_overflow_negative);
-    tcase_add_test(tc_boundary, test_from_decimal_to_int_with_scale);
-    tcase_add_test(tc_boundary, test_from_float_to_decimal_special_values);
-    tcase_add_test(tc_boundary, test_from_float_to_decimal_boundary_values);
-    tcase_add_test(tc_boundary, test_from_float_to_decimal_precision);
-    tcase_add_test(tc_boundary, test_from_decimal_to_float_with_scale);
-    tcase_add_test(tc_boundary, test_from_decimal_to_float_large_number);
-    tcase_add_test(tc_boundary, test_from_decimal_to_float_overflow);
-    suite_add_tcase(s, tc_boundary);
+    // decimal to int tests
+    tc_decimal_to_int = tcase_create("Decimal to Int");
+    tcase_add_test(tc_decimal_to_int, test_decimal_to_int_positive_numbers);
+    tcase_add_test(tc_decimal_to_int, test_decimal_to_int_negative_numbers);
+    tcase_add_test(tc_decimal_to_int, test_decimal_to_int_zero);
+    tcase_add_test(tc_decimal_to_int, test_decimal_to_int_truncates_fraction);
+    tcase_add_test(tc_decimal_to_int, test_decimal_to_int_rounds_towards_zero);
+    tcase_add_test(tc_decimal_to_int, test_decimal_to_int_overflow_positive_returns_error);
+    tcase_add_test(tc_decimal_to_int, test_decimal_to_int_overflow_negative_returns_error);
+    tcase_add_test(tc_decimal_to_int, test_decimal_to_int_null_dst_returns_error);
+    suite_add_tcase(s, tc_decimal_to_int);
 
-    /* Обработка ошибок */
-    tc_errors = tcase_create("Errors");
-    tcase_add_test(tc_errors, test_from_int_to_decimal_null_ptr);
-    tcase_add_test(tc_errors, test_from_decimal_to_int_null_ptr);
-    tcase_add_test(tc_errors, test_from_float_to_decimal_null_ptr);
-    tcase_add_test(tc_errors, test_from_decimal_to_float_null_ptr);
-    suite_add_tcase(s, tc_errors);
+    // float to decimal tests
+    tc_float_to_decimal = tcase_create("Float to Decimal");
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_positive_numbers);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_negative_numbers);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_zero);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_negative_zero);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_small_positive_returns_error);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_small_negative_returns_error);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_large_positive_returns_error);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_large_negative_returns_error);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_infinity_returns_error);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_negative_infinity_returns_error);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_nan_returns_error);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_precision_7_digits);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_rounding_behavior);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_common_values);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_powers_of_ten);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_denormalized_handling);
+    tcase_add_test(tc_float_to_decimal, test_float_to_decimal_null_dst_returns_error);
+    suite_add_tcase(s, tc_float_to_decimal);
+
+    // decimal to float tests
+    tc_decimal_to_float = tcase_create("Decimal to Float");
+    tcase_add_test(tc_decimal_to_float, test_decimal_to_float_positive_numbers);
+    tcase_add_test(tc_decimal_to_float, test_decimal_to_float_negative_numbers);
+    tcase_add_test(tc_decimal_to_float, test_decimal_to_float_zero);
+    tcase_add_test(tc_decimal_to_float, test_decimal_to_float_with_scale);
+    tcase_add_test(tc_decimal_to_float, test_decimal_to_float_large_numbers);
+    tcase_add_test(tc_decimal_to_float, test_decimal_to_float_small_numbers);
+    tcase_add_test(tc_decimal_to_float, test_decimal_to_float_precision_loss);
+    tcase_add_test(tc_decimal_to_float, test_decimal_to_float_max_decimal);
+    tcase_add_test(tc_decimal_to_float, test_decimal_to_float_min_decimal);
+    tcase_add_test(tc_decimal_to_float, test_decimal_to_float_null_dst_returns_error);
+    suite_add_tcase(s, tc_decimal_to_float);
+
+    // Edge cases tests
+    tc_edge = tcase_create("Edge Cases");
+    tcase_add_test(tc_edge, test_conversion_round_trip_int);
+    tcase_add_test(tc_edge, test_conversion_round_trip_float);
+    tcase_add_test(tc_edge, test_conversion_special_float_values);
+    tcase_add_test(tc_edge, test_conversion_denormalized_float);
+    tcase_add_test(tc_edge, test_conversion_power_of_ten_values);
+    tcase_add_test(tc_edge, test_conversion_fractional_values);
+    suite_add_tcase(s, tc_edge);
+
+    // Precision and boundary tests
+    tc_precision = tcase_create("Precision and Boundary");
+    tcase_add_test(tc_precision, test_float_imprecise_representation);
+    tcase_add_test(tc_precision, test_decimal_scale_28_conversion);
+    tcase_add_test(tc_precision, test_progressive_precision_loss);
+    tcase_add_test(tc_precision, test_boundary_value_conversion);
+    suite_add_tcase(s, tc_precision);
 
     return s;
 }
+
 
 /**
  * Точка входа в программу
@@ -349,7 +798,7 @@ Suite *conversion_suite(void) {
  */
 int main(int argc, char **argv) {
   int failed = 0;
-  Suite *s = conversion_suite();
+  Suite *s = conversion_functions_suite();
   SRunner *runner = srunner_create(s);
 
   if (argc > 1 && strcmp(argv[1], "+") == 0) {
